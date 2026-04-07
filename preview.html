@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Camera Preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Syne:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: rgba(15, 23, 42, 0.78);
+        --text: #f8fafc;
+        --muted: #cbd5e1;
+        --line: rgba(255, 255, 255, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        background:
+          radial-gradient(circle at 20% 20%, rgba(14, 165, 233, 0.18), transparent 30%),
+          radial-gradient(circle at 80% 80%, rgba(245, 158, 11, 0.16), transparent 30%),
+          var(--bg);
+        color: var(--text);
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        backdrop-filter: blur(10px);
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Syne", "Segoe UI", sans-serif;
+        font-size: clamp(1.1rem, 2vw, 1.5rem);
+      }
+
+      p {
+        margin: 0.2rem 0 0;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+
+      .close-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0.55rem 0.9rem;
+        border-radius: 0.7rem;
+        border: 1px solid var(--line);
+        color: var(--text);
+        text-decoration: none;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0.5rem 0.8rem;
+        border-radius: 0.7rem;
+        border: 1px solid var(--line);
+        color: var(--text);
+        text-decoration: none;
+        font: inherit;
+        font-size: 0.9rem;
+        background: rgba(255, 255, 255, 0.06);
+        cursor: pointer;
+      }
+
+      .btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .viewer {
+        display: grid;
+        place-items: center;
+        padding: 1rem;
+      }
+
+      .frame {
+        width: min(96vw, 1600px);
+        height: calc(100vh - 110px);
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 1rem;
+        background: rgba(255, 255, 255, 0.04);
+        overflow: hidden;
+      }
+
+      img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        display: block;
+        transform-origin: center center;
+        transition: transform 0.12s ease;
+      }
+
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 2rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1 id="title">Camera Preview</h1>
+        <p>Full-size image viewer for clearer inspection.</p>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="prevBtn">Previous</button>
+        <button type="button" class="btn" id="nextBtn">Next</button>
+        <button type="button" class="btn" id="zoomOutBtn">- Zoom</button>
+        <button type="button" class="btn" id="zoomInBtn">+ Zoom</button>
+        <button type="button" class="btn" id="resetZoomBtn">Reset Zoom</button>
+        <a class="btn" id="downloadBtn" href="#" download>Download</a>
+        <a class="close-link" href="/">Back to planner</a>
+      </div>
+    </header>
+
+    <main class="viewer">
+      <div class="frame" id="frame">
+        <p class="empty" id="emptyState">Preview image is not available.</p>
+        <img id="previewImage" alt="Camera preview" hidden />
+      </div>
+    </main>
+
+    <script>
+      const PREVIEW_CONTEXT_KEY = "cams-preview-context-v1";
+      const params = new URLSearchParams(window.location.search);
+      const src = params.get("src") || "";
+      const label = params.get("label") || "Camera Preview";
+      const cameraId = Number(params.get("cameraId") || 0);
+
+      const title = document.getElementById("title");
+      const image = document.getElementById("previewImage");
+      const emptyState = document.getElementById("emptyState");
+      const prevBtn = document.getElementById("prevBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const zoomOutBtn = document.getElementById("zoomOutBtn");
+      const zoomInBtn = document.getElementById("zoomInBtn");
+      const resetZoomBtn = document.getElementById("resetZoomBtn");
+      const downloadBtn = document.getElementById("downloadBtn");
+
+      let zoom = 1;
+      let items = [];
+      let activeIndex = -1;
+
+      function updateZoom() {
+        image.style.transform = `scale(${zoom})`;
+      }
+
+      function setImage(item) {
+        title.textContent = item.label || "Camera Preview";
+        document.title = item.label || "Camera Preview";
+        image.src = item.src;
+        image.alt = item.label || "Camera preview";
+        image.hidden = false;
+        emptyState.hidden = true;
+        downloadBtn.href = item.src;
+        downloadBtn.download = `${(item.label || "camera-preview").replace(/[^a-z0-9-_]+/gi, "-")}.jpg`;
+      }
+
+      function updateNavState() {
+        const hasItems = items.length > 0;
+        prevBtn.disabled = !hasItems || activeIndex <= 0;
+        nextBtn.disabled = !hasItems || activeIndex < 0 || activeIndex >= items.length - 1;
+      }
+
+      function openByIndex(index) {
+        if (index < 0 || index >= items.length) return;
+        activeIndex = index;
+        setImage(items[activeIndex]);
+        updateNavState();
+      }
+
+      function loadContext() {
+        try {
+          const raw = localStorage.getItem(PREVIEW_CONTEXT_KEY);
+          if (!raw) return;
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed?.items)) return;
+          items = parsed.items.filter((it) => it && it.src);
+          if (!items.length) return;
+
+          if (cameraId) {
+            activeIndex = items.findIndex((it) => Number(it.id) === cameraId);
+          }
+
+          if (activeIndex < 0 && src) {
+            activeIndex = items.findIndex((it) => it.src === src);
+          }
+        } catch {
+          items = [];
+          activeIndex = -1;
+        }
+      }
+
+      loadContext();
+
+      if (items.length && activeIndex >= 0) {
+        openByIndex(activeIndex);
+      } else if (src) {
+        setImage({ src, label });
+        updateNavState();
+      } else {
+        title.textContent = "Camera Preview";
+        document.title = "Camera Preview";
+        updateNavState();
+      }
+
+      prevBtn.addEventListener("click", () => openByIndex(activeIndex - 1));
+      nextBtn.addEventListener("click", () => openByIndex(activeIndex + 1));
+
+      zoomInBtn.addEventListener("click", () => {
+        zoom = Math.min(3, Number((zoom + 0.2).toFixed(2)));
+        updateZoom();
+      });
+
+      zoomOutBtn.addEventListener("click", () => {
+        zoom = Math.max(0.4, Number((zoom - 0.2).toFixed(2)));
+        updateZoom();
+      });
+
+      resetZoomBtn.addEventListener("click", () => {
+        zoom = 1;
+        updateZoom();
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft") openByIndex(activeIndex - 1);
+        if (event.key === "ArrowRight") openByIndex(activeIndex + 1);
+        if (event.key === "+" || event.key === "=") {
+          zoom = Math.min(3, Number((zoom + 0.2).toFixed(2)));
+          updateZoom();
+        }
+        if (event.key === "-") {
+          zoom = Math.max(0.4, Number((zoom - 0.2).toFixed(2)));
+          updateZoom();
+        }
+      });
+    </script>
+  </body>
+</html>

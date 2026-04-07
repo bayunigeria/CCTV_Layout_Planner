@@ -1,0 +1,26 @@
+{
+  "layoutDataUrl": "/uploads/1775587581304-062bb7e7-a6c8-4473-bc73-05a1b10790c9.png",
+  "cameras": [
+    {
+      "id": 1,
+      "name": "CAM-01",
+      "x": 82.3,
+      "y": 23.33,
+      "angle": 0,
+      "note": "",
+      "preview": "/uploads/1775588008384-801e0b63-8f81-429a-9902-34ee3627d395.png"
+    },
+    {
+      "id": 2,
+      "name": "CAM-02",
+      "x": 84.57,
+      "y": 39.85,
+      "angle": 136,
+      "note": "",
+      "preview": "/uploads/1775587943463-5f03e13b-2dd6-4c7a-9dfe-95ee68d34b26.jpeg"
+    }
+  ],
+  "selectedId": 1,
+  "nextId": 3,
+  "cameraSearch": ""
+}

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CCTV Layout Planner</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Syne:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Decision Support</p>
+        <h1>CCTV Layout Planner</h1>
+      </div>
+      <div class="actions">
+        <label class="file-btn">
+          Upload Layout
+          <input id="layoutInput" type="file" accept="image/*" />
+        </label>
+        <button id="exportPngBtn" class="ghost">Export PNG</button>
+        <button id="exportBtn" class="ghost">Export JSON</button>
+        <label class="file-btn ghost">
+          Import JSON
+          <input id="importBtn" type="file" accept="application/json" />
+        </label>
+        <button id="clearBtn" class="danger">Reset</button>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="canvas-panel">
+        <div id="stage" class="stage">
+          <div id="emptyState" class="empty-state">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:.4;margin-bottom:.5rem"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+            <h2>Upload a layout image</h2>
+            <p>Then click anywhere on the layout to place a camera marker.</p>
+          </div>
+          <img id="layoutImage" alt="Layout" />
+          <div id="markerLayer" class="marker-layer"></div>
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <section class="panel-card">
+          <h3>Camera Points</h3>
+          <p class="muted">Click a marker on the layout or select from the list. Drag to reposition.</p>
+          <input id="cameraSearchInput" type="text" placeholder="Search by label..." />
+          <div id="cameraList" class="camera-list"></div>
+        </section>
+
+        <section class="panel-card">
+          <h3>Camera Details</h3>
+          <div id="editor" class="editor hidden">
+            <label>
+              Label
+              <input id="nameInput" type="text" placeholder="e.g. East Corridor" />
+            </label>
+            <p id="nameError" class="input-error hidden"></p>
+            <label>
+              Direction (degrees)
+              <input id="angleInput" type="number" min="0" max="359" />
+            </label>
+            <label>
+              Notes
+              <textarea id="noteInput" rows="3" placeholder="Coverage area, blind spots, etc."></textarea>
+            </label>
+            <label class="preview-upload">
+              Upload Camera View Preview
+              <input id="previewInput" type="file" accept="image/*" />
+            </label>
+            <button id="deleteBtn" class="danger">Remove This Camera</button>
+          </div>
+          <p id="editorHint" class="muted">No camera selected.</p>
+        </section>
+      </aside>
+    </main>
+
+    <div id="hoverCard" class="hover-card hidden"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
