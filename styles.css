@@ -174,6 +174,26 @@ button.danger {
   background: var(--accent);
 }
 
+.marker.ping-alive {
+  background: #16a34a;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 6px rgba(22, 163, 74, 0.5);
+}
+
+.marker.ping-dead {
+  background: #dc2626;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 6px rgba(220, 38, 38, 0.5);
+}
+
+.marker.ping-pending {
+  background: var(--accent-2);
+  animation: ping-blink 1s ease-in-out infinite alternate;
+}
+
+@keyframes ping-blink {
+  from { opacity: 1; }
+  to   { opacity: 0.45; }
+}
+
 @keyframes pulse {
   0% {
     transform: scale(0.7);
@@ -189,6 +209,48 @@ button.danger {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+}
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0;
+}
+
+.ping-toggle-btn {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.28rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(15, 118, 110, 0.3);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: background 0.15s;
+}
+
+.ping-toggle-btn.active {
+  background: var(--danger);
+  border-color: rgba(185, 28, 28, 0.3);
+}
+
+.ping-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+.ping-dot.dot-alive    { background: #16a34a; }
+.ping-dot.dot-dead     { background: #dc2626; }
+.ping-dot.dot-pending  {
+  background: var(--accent-2);
+  animation: ping-blink 1s ease-in-out infinite alternate;
 }
 
 .panel-card {

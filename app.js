@@ -30,15 +30,26 @@ const angleInput = document.getElementById("angleInput");
 const noteInput = document.getElementById("noteInput");
 const previewInput = document.getElementById("previewInput");
 const deleteBtn = document.getElementById("deleteBtn");
+const ipInput = document.getElementById("ipInput");
+const pingToggleBtn = document.getElementById("pingToggleBtn");
 
 let _drag = null;
 let _saveTimer = null;
 let _saving = false;
 let _saveAgain = false;
 let _hoverHideTimer = null;
+let pingActive = false;
+let _pingEventSource = null;
+const pingStatus = {};
 
 function normalizeLabel(label) {
   return String(label || "").trim().toLowerCase();
+}
+
+function isValidIpv4(ip) {
+  const parts = String(ip || "").trim().split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) >= 0 && Number(p) <= 255);
 }
 
 function hasDuplicateLabel(label, excludeId = null) {
@@ -100,6 +111,7 @@ function normalizePlan(input) {
       angle: Number(c.angle) || 0,
       note: String(c.note || ""),
       preview: String(c.preview || ""),
+      ip: String(c.ip || ""),
     })),
     selectedId: input?.selectedId == null ? null : Number(input.selectedId),
     nextId: Number(input?.nextId) || Math.max(0, ...cameras.map((c) => Number(c.id) || 0)) + 1,
@@ -125,6 +137,7 @@ function toPlanPayload() {
       angle: c.angle,
       note: c.note,
       preview: c.preview,
+      ip: c.ip || "",
     })),
     selectedId: state.selectedId,
     nextId: state.nextId,
@@ -232,6 +245,7 @@ function addCamera(xPercent, yPercent) {
     angle: 0,
     note: "",
     preview: "",
+    ip: "",
   };
   state.cameras.push(cam);
   state.selectedId = cam.id;
@@ -241,6 +255,7 @@ function addCamera(xPercent, yPercent) {
 
 function removeSelectedCamera() {
   if (!state.selectedId) return;
+  delete pingStatus[state.selectedId];
   state.cameras = state.cameras.filter((c) => c.id !== state.selectedId);
   state.selectedId = state.cameras[0]?.id || null;
   render();
@@ -282,6 +297,7 @@ function importJson(file) {
 
 function clearAll() {
   if (!confirm("Reset all layout and camera data?")) return;
+  stopPingMonitoring();
   state.layoutDataUrl = "";
   state.cameras = [];
   state.selectedId = null;
@@ -441,8 +457,89 @@ function openPreviewViewer(camera) {
   window.open(`/preview.html?${params.toString()}`, "_blank", "noopener");
 }
 
+function startPingMonitoring() {
+  if (_pingEventSource) {
+    _pingEventSource.close();
+    _pingEventSource = null;
+  }
+
+  const targets = state.cameras.filter((c) => isValidIpv4(c.ip));
+  if (!targets.length) {
+    alert("Masukkan minimal 1 IP camera yang valid (format: 192.168.1.10) sebelum Start Monitoring.");
+    return;
+  }
+
+  Object.keys(pingStatus).forEach((k) => delete pingStatus[k]);
+  targets.forEach((c) => {
+    pingStatus[c.id] = "pending";
+  });
+  pingActive = true;
+  updatePingToggleBtn();
+  renderMarkers();
+  renderCameraList();
+
+  _pingEventSource = new EventSource("/api/ping-live");
+
+  _pingEventSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (typeof data.id !== "undefined") {
+        pingStatus[data.id] = data.alive ? "alive" : "dead";
+        renderMarkers();
+        renderCameraList();
+      }
+    } catch {
+      // ignore malformed event
+    }
+  };
+
+  _pingEventSource.onerror = () => {
+    if (_pingEventSource) {
+      _pingEventSource.close();
+      _pingEventSource = null;
+    }
+    pingActive = false;
+    Object.keys(pingStatus).forEach((k) => delete pingStatus[k]);
+    updatePingToggleBtn();
+    renderMarkers();
+    renderCameraList();
+  };
+}
+
+function stopPingMonitoring() {
+  if (_pingEventSource) {
+    _pingEventSource.close();
+    _pingEventSource = null;
+  }
+  pingActive = false;
+  Object.keys(pingStatus).forEach((k) => delete pingStatus[k]);
+  updatePingToggleBtn();
+  renderMarkers();
+  renderCameraList();
+}
+
+function updatePingToggleBtn() {
+  if (!pingToggleBtn) return;
+  if (pingActive) {
+    pingToggleBtn.textContent = "Stop Monitoring";
+    pingToggleBtn.classList.add("active");
+  } else {
+    pingToggleBtn.textContent = "Start Monitoring";
+    pingToggleBtn.classList.remove("active");
+  }
+}
+
+function togglePingMonitoring() {
+  if (pingActive) {
+    stopPingMonitoring();
+  } else {
+    startPingMonitoring();
+  }
+}
+
 function startDrag(event, camera) {
   event.preventDefault();
+
   const rect = stage.getBoundingClientRect();
   _drag = {
     cameraId: camera.id,
@@ -492,7 +589,9 @@ function renderMarkers() {
   state.cameras.forEach((cam) => {
     const marker = document.createElement("button");
     marker.type = "button";
-    marker.className = `marker${cam.id === state.selectedId ? " selected" : ""}`;
+    const ps = pingStatus[cam.id];
+    const pingClass = ps === "alive" ? " ping-alive" : ps === "dead" ? " ping-dead" : ps === "pending" ? " ping-pending" : "";
+    marker.className = `marker${cam.id === state.selectedId ? " selected" : ""}${pingClass}`;
     marker.style.left = `${cam.x}%`;
     marker.style.top = `${cam.y}%`;
     marker.style.transform = `translate(-50%, -100%) rotate(${cam.angle || 0}deg)`;
@@ -540,7 +639,15 @@ function renderCameraList() {
     const item = document.createElement("button");
     item.type = "button";
     item.className = `camera-item${cam.id === state.selectedId ? " active" : ""}`;
-    item.textContent = cam.name;
+    const ps = pingStatus[cam.id];
+    if (ps) {
+      const dot = document.createElement("span");
+      dot.className = `ping-dot dot-${ps}`;
+      item.appendChild(dot);
+    }
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = cam.name;
+    item.appendChild(labelSpan);
     item.addEventListener("click", () => setSelectedCamera(cam.id));
     cameraList.appendChild(item);
   });
@@ -561,6 +668,7 @@ function renderEditor() {
   nameInput.value = sel.name || "";
   angleInput.value = Number.isFinite(sel.angle) ? sel.angle : 0;
   noteInput.value = sel.note || "";
+  ipInput.value = sel.ip || "";
 }
 
 function renderLayout() {
@@ -649,6 +757,10 @@ noteInput.addEventListener("input", () => {
   updateSelectedCamera({ note: noteInput.value });
 });
 
+ipInput.addEventListener("input", () => {
+  updateSelectedCamera({ ip: ipInput.value });
+});
+
 previewInput.addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
@@ -676,6 +788,7 @@ cameraSearchInput.addEventListener("input", (e) => {
 });
 
 deleteBtn.addEventListener("click", removeSelectedCamera);
+pingToggleBtn.addEventListener("click", togglePingMonitoring);
 clearBtn.addEventListener("click", clearAll);
 exportBtn.addEventListener("click", exportJson);
 exportPngBtn.addEventListener("click", exportPng);
@@ -706,5 +819,6 @@ hoverCard.addEventListener("mouseleave", () => {
   } catch {
     loadFallbackLocal();
   }
+  updatePingToggleBtn();
   render();
 })();

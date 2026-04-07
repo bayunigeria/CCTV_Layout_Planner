@@ -3,6 +3,7 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { exec } = require("child_process");
 
 const app = express();
 
@@ -64,6 +65,7 @@ function sanitizePlan(input) {
           angle: Number(c.angle) || 0,
           note: String(c.note || ""),
           preview: String(c.preview || ""),
+          ip: String(c.ip || "").trim(),
         }))
     : [];
 
@@ -105,6 +107,71 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
     ok: true,
     path: `/uploads/${req.file.filename}`,
     filename: req.file.filename,
+  });
+});
+
+function isValidIp(ip) {
+  if (typeof ip !== "string") return false;
+  const parts = ip.trim().split(".");
+  if (parts.length !== 4) return false;
+  return parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) >= 0 && Number(p) <= 255);
+}
+
+function pingHost(ip) {
+  return new Promise((resolve) => {
+    const cmd =
+      process.platform === "win32"
+        ? `ping -n 1 -w 1000 ${ip}`
+        : `ping -c 1 -W 1 ${ip}`;
+    exec(cmd, { timeout: 3500 }, (error, stdout) => {
+      resolve(!error && /ttl=/i.test(stdout));
+    });
+  });
+}
+
+app.get("/api/ping-live", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  let active = true;
+
+  const pingCycle = async () => {
+    if (!active) return;
+
+    let targets = [];
+    try {
+      const raw = fs.readFileSync(PLAN_FILE, "utf8");
+      const plan = JSON.parse(raw);
+      targets = (Array.isArray(plan.cameras) ? plan.cameras : []).filter(
+        (c) => c.ip && isValidIp(String(c.ip))
+      );
+    } catch {
+      // plan unreadable – try again next cycle
+    }
+
+    if (targets.length === 0) {
+      if (active) res.write(`data: ${JSON.stringify({ type: "idle" })}\n\n`);
+    } else {
+      await Promise.all(
+        targets.map(async (cam) => {
+          const alive = await pingHost(String(cam.ip));
+          if (active) {
+            res.write(`data: ${JSON.stringify({ id: cam.id, alive })}\n\n`);
+          }
+        })
+      );
+    }
+
+    if (active) setTimeout(pingCycle, 1500);
+  };
+
+  pingCycle();
+
+  req.on("close", () => {
+    active = false;
   });
 });
 

@@ -51,7 +51,10 @@
 
       <aside class="side-panel">
         <section class="panel-card">
-          <h3>Camera Points</h3>
+          <div class="panel-header-row">
+            <h3>Camera Points</h3>
+            <button id="pingToggleBtn" type="button" class="ping-toggle-btn">Start Monitoring</button>
+          </div>
           <p class="muted">Click a marker on the layout or select from the list. Drag to reposition.</p>
           <input id="cameraSearchInput" type="text" placeholder="Search by label..." />
           <div id="cameraList" class="camera-list"></div>
@@ -68,6 +71,10 @@
             <label>
               Direction (degrees)
               <input id="angleInput" type="number" min="0" max="359" />
+            </label>
+            <label>
+              Local IP Address
+              <input id="ipInput" type="text" placeholder="e.g. 192.168.1.100" maxlength="15" autocomplete="off" spellcheck="false" />
             </label>
             <label>
               Notes
