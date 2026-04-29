@@ -33,6 +33,7 @@
           <input id="importBtn" type="file" accept="application/json" />
         </label>
         <button id="clearBtn" class="danger">Reset</button>
+          <a id="displayBtn" href="/display" target="_blank" rel="noopener" class="file-btn ghost" style="text-decoration:none">Display View</a>
       </div>
     </header>
 
@@ -42,14 +43,29 @@
           <div id="emptyState" class="empty-state">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:.4;margin-bottom:.5rem"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
             <h2>Upload a layout image</h2>
-            <p>Then click anywhere on the layout to place a camera marker.</p>
+            <p>Right-click anywhere on the layout to add a camera node. Drag to pan.</p>
           </div>
-          <img id="layoutImage" alt="Layout" />
-          <div id="markerLayer" class="marker-layer"></div>
+          <div id="viewport" class="viewport">
+            <img id="layoutImage" alt="Layout" />
+            <div id="markerLayer" class="marker-layer"></div>
+          </div>
         </div>
       </section>
 
       <aside class="side-panel">
+        <section class="panel-card">
+          <h3>Layouts</h3>
+          <p class="muted">Manage multiple floors or areas within one project.</p>
+          <div class="layout-controls">
+            <select id="layoutSelect" aria-label="Select layout"></select>
+            <input id="layoutNameInput" type="text" placeholder="Layout name (e.g. Floor 1)" />
+            <div class="layout-actions">
+              <button id="addLayoutBtn" type="button" class="ghost">Add Layout</button>
+              <button id="removeLayoutBtn" type="button" class="danger">Remove Layout</button>
+            </div>
+          </div>
+        </section>
+
         <section class="panel-card">
           <div class="panel-header-row">
             <h3>Camera Points</h3>
@@ -92,6 +108,14 @@
     </main>
 
     <div id="hoverCard" class="hover-card hidden"></div>
+
+    <div id="ctxMenu" class="ctx-menu hidden">
+      <p class="ctx-menu-title">Add Node Here?</p>
+      <div class="ctx-menu-actions">
+        <button id="ctxAddBtn" type="button">Add Node</button>
+        <button id="ctxCancelBtn" type="button" class="ghost">Cancel</button>
+      </div>
+    </div>
 
     <script src="app.js"></script>
   </body>

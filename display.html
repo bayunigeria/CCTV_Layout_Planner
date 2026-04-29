@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CCTV Live Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Syne:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #f6f3ea;
+        --panel: #fff8ec;
+        --panel-strong: #fff;
+        --ink: #242118;
+        --muted: #706857;
+        --accent: #0f766e;
+        --accent-2: #d97706;
+        --danger: #b91c1c;
+        --line: #d7cfbf;
+        --shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+        --green: #16a34a;
+        --red: #dc2626;
+      }
+
+      *, *::before, *::after { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      h1, h2, h3 { margin: 0; font-family: "Syne", "Segoe UI", sans-serif; }
+
+      /* ── Topbar ─────────────────────────────── */
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        padding: 0.65rem 1.2rem;
+        background: rgba(255, 248, 236, 0.92);
+        border-bottom: 1px solid var(--line);
+        backdrop-filter: blur(8px);
+      }
+
+      .topbar-brand { display: flex; flex-direction: column; }
+
+      .eyebrow {
+        margin: 0;
+        font-size: 0.7rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .topbar h1 { font-size: clamp(1rem, 2vw, 1.4rem); }
+
+      /* ── Layout tabs ────────────────────────── */
+      .layout-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.38rem;
+      }
+
+      .layout-tab {
+        padding: 0.3rem 0.8rem;
+        border-radius: 2rem;
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--ink);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.8rem;
+        font-weight: 600;
+        transition: background 0.14s, border-color 0.14s, color 0.14s;
+      }
+
+      .layout-tab:hover { background: #f1f5f9; }
+
+      .layout-tab.active {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+      }
+
+      /* ── Status bar ─────────────────────────── */
+      .statusbar {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+        padding: 0.32rem 1.2rem;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.77rem;
+        color: var(--muted);
+      }
+
+      .conn-indicator { display: flex; align-items: center; gap: 5px; font-weight: 600; }
+
+      .conn-dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: inline-block;
+      }
+
+      .conn-dot.connecting  { background: var(--accent-2); animation: blink 0.9s ease-in-out infinite alternate; }
+      .conn-dot.connected   { background: var(--green); }
+      .conn-dot.disconnected { background: var(--red); }
+
+      @keyframes blink { from { opacity: 1; } to { opacity: 0.2; } }
+
+      .summary-pills { display: flex; align-items: center; gap: 0.5rem; }
+
+      .pill { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; font-size: 0.8rem; }
+
+      .pill-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+      .pill-dot.alive { background: var(--green); }
+      .pill-dot.dead  { background: var(--red); }
+
+      /* ── Main shell ─────────────────────────── */
+      .shell {
+        display: grid;
+        grid-template-columns: 1fr 268px;
+        gap: 0.85rem;
+        padding: 0.85rem;
+        flex: 1;
+      }
+
+      @media (max-width: 680px) {
+        .shell { grid-template-columns: 1fr; }
+        .side-panel { order: 2; }
+      }
+
+      /* ── Stage ──────────────────────────────── */
+      .canvas-panel {
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 160px);
+      }
+
+      .stage {
+        position: relative;
+        border-radius: 1rem;
+        border: 1px solid var(--line);
+        background: var(--panel-strong);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        min-height: 600px;
+      }
+
+      .stage-badge {
+        position: absolute;
+        top: 0.65rem;
+        left: 0.8rem;
+        z-index: 5;
+        background: rgba(255, 255, 255, 0.9);
+        backdrop-filter: blur(4px);
+        border: 1px solid var(--line);
+        border-radius: 0.45rem;
+        padding: 0.18rem 0.55rem;
+        font-family: "Syne", sans-serif;
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      #layoutImage { width: 100%; display: none; }
+
+      .empty-stage {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        text-align: center;
+        color: var(--muted);
+        gap: 0.5rem;
+        padding: 1.5rem;
+      }
+
+      /* ── Markers ────────────────────────────── */
+      .marker-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .marker {
+        position: absolute;
+        width: 22px;
+        height: 30px;
+        background: var(--accent-2);
+        clip-path: polygon(50% 100%, 0 0, 100% 0);
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 1px 5px rgba(0, 0, 0, 0.22);
+        transform: translate(-50%, -100%);
+        transform-origin: 50% 100%;
+        transition: background 0.35s, box-shadow 0.35s;
+      }
+
+      .marker.ping-alive {
+        background: var(--green);
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 8px rgba(22, 163, 74, 0.52);
+      }
+
+      .marker.ping-dead {
+        background: var(--red);
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 8px rgba(220, 38, 38, 0.52);
+      }
+
+      .marker.ping-pending { animation: marker-blink 1s ease-in-out infinite alternate; }
+
+      @keyframes marker-blink { from { opacity: 1; } to { opacity: 0.35; } }
+
+      .marker-label {
+        position: absolute;
+        transform: translateX(-50%);
+        margin-top: 5px;
+        font-size: 0.6rem;
+        font-weight: 700;
+        color: #fff;
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(2px);
+        border-radius: 3px;
+        padding: 1px 4px;
+        white-space: nowrap;
+        pointer-events: none;
+        line-height: 1.4;
+      }
+
+      /* ── Side panel ─────────────────────────── */
+      .side-panel { display: flex; flex-direction: column; gap: 0.7rem; }
+
+      .panel-card {
+        border-radius: 0.9rem;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        padding: 0.85rem;
+      }
+
+      .panel-card h3 {
+        font-family: "Syne", sans-serif;
+        font-size: 0.95rem;
+        margin-bottom: 0.6rem;
+        color: var(--ink);
+      }
+
+      /* ── Camera list ────────────────────────── */
+      .cam-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        max-height: calc(100vh - 340px);
+        min-height: 60px;
+        overflow-y: auto;
+      }
+
+      .cam-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.42rem 0.5rem;
+        border-radius: 0.5rem;
+        background: #fff;
+        border: 1px solid var(--line);
+      }
+
+      .status-dot {
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: #d1d5db;
+      }
+
+      .status-dot.alive   { background: var(--green); box-shadow: 0 0 5px rgba(22, 163, 74, 0.4); }
+      .status-dot.dead    { background: var(--red);   box-shadow: 0 0 5px rgba(220, 38, 38, 0.4); }
+      .status-dot.pending { background: var(--accent-2); animation: blink 0.9s ease-in-out infinite alternate; }
+
+      .cam-info { flex: 1; min-width: 0; }
+
+      .cam-name {
+        font-size: 0.78rem;
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .cam-ip {
+        font-family: "Courier New", monospace;
+        font-size: 0.68rem;
+        color: var(--muted);
+      }
+
+      .cam-status-label {
+        font-size: 0.68rem;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+
+      .cam-status-label.alive   { color: var(--green); }
+      .cam-status-label.dead    { color: var(--red); }
+      .cam-status-label.pending { color: var(--accent-2); }
+
+      /* ── Legend ─────────────────────────────── */
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        font-size: 0.74rem;
+        color: var(--muted);
+      }
+
+      .legend-item { display: flex; align-items: center; gap: 4px; }
+
+      .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+      /* ── Keyboard hint ──────────────────────── */
+      .kbd-hint {
+        font-size: 0.7rem;
+        color: var(--muted);
+        margin-top: 0.5rem;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-brand">
+        <p class="eyebrow">Decision Support · View Only</p>
+        <h1 id="pageTitle">CCTV Live Monitor</h1>
+      </div>
+      <nav id="layoutTabs" class="layout-tabs" aria-label="Select layout" style="display:none"></nav>
+    </header>
+
+    <div class="statusbar">
+      <span id="connStatus" class="conn-indicator">
+        <span class="conn-dot connecting"></span> Connecting…
+      </span>
+      <span id="statSummary" class="summary-pills"></span>
+      <span id="lastUpdate"></span>
+    </div>
+
+    <main class="shell">
+      <section class="canvas-panel">
+        <div id="stage" class="stage">
+          <span id="stageBadge" class="stage-badge" style="display:none"></span>
+          <div id="emptyStage" class="empty-stage">
+            <svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+              style="opacity:.35;margin:0 auto">
+              <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+              <circle cx="12" cy="13" r="3" />
+            </svg>
+            <p style="font-size:.9rem;margin-top:.35rem">No layout image for this floor.</p>
+          </div>
+          <img id="layoutImage" alt="Layout" />
+          <div id="markerLayer" class="marker-layer"></div>
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <div class="panel-card">
+          <h3>Camera Status</h3>
+          <div id="camList" class="cam-list">
+            <p style="color:var(--muted);font-size:.82rem">Loading…</p>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <div class="legend">
+            <span class="legend-item">
+              <span class="legend-dot" style="background:var(--green)"></span> Online (Reply)
+            </span>
+            <span class="legend-item">
+              <span class="legend-dot" style="background:var(--red)"></span> Offline (RTO)
+            </span>
+            <span class="legend-item">
+              <span class="legend-dot" style="background:var(--accent-2)"></span> Checking…
+            </span>
+            <span class="legend-item">
+              <span class="legend-dot" style="background:#d1d5db"></span> No IP set
+            </span>
+          </div>
+          <p id="kbdHint" class="kbd-hint">← → arrow keys to switch floors</p>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      "use strict";
+
+      // ── State ──────────────────────────────────────────────────────────────
+      let allLayouts = [];
+      let activeLayoutId = null;
+      const pingStatus = {}; // key: cameraId (number) → "alive" | "dead" | "pending"
+      let _sse = null;
+      let _sseReconnectTimer = null;
+      let _sseBackoff = 2000;
+      let _lastPingAt = null;
+
+      // ── Bootstrap ──────────────────────────────────────────────────────────
+      (async function init() {
+        const urlLayoutId = Number(new URLSearchParams(location.search).get("layoutId")) || null;
+
+        try {
+          const plan = await fetch("/api/plan").then((r) => {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          });
+
+          // Support multi-layout and legacy single-layout payloads
+          if (Array.isArray(plan?.layouts) && plan.layouts.length) {
+            allLayouts = plan.layouts;
+          } else if (plan?.cameras) {
+            allLayouts = [{
+              id: 1,
+              name: "Floor 1",
+              layoutDataUrl: plan.layoutDataUrl || "",
+              cameras: plan.cameras || [],
+            }];
+          } else {
+            allLayouts = [];
+          }
+
+          if (!allLayouts.length) {
+            setError("No layout data found on the server.");
+            setConnStatus("disconnected");
+            return;
+          }
+
+          const validId = urlLayoutId && allLayouts.some((l) => l.id === urlLayoutId);
+          activeLayoutId = validId ? urlLayoutId : allLayouts[0].id;
+
+          document.title = (getActiveLayout()?.name ?? "Floor") + " — CCTV Live Monitor";
+          document.getElementById("pageTitle").textContent =
+            (getActiveLayout()?.name ?? "CCTV Live Monitor") + " — Live Monitor";
+
+          renderTabs();
+          renderStage();
+          renderCamList();
+          startSSE();
+        } catch {
+          setError("Could not reach the server.<br>Make sure the CAMS server is running (<code>npm start</code>).");
+          setConnStatus("disconnected");
+        }
+      })();
+
+      // ── Helpers ────────────────────────────────────────────────────────────
+      function getActiveLayout() {
+        return allLayouts.find((l) => l.id === activeLayoutId) ?? allLayouts[0] ?? null;
+      }
+
+      function setError(html) {
+        document.getElementById("emptyStage").innerHTML =
+          `<p style="color:var(--danger);font-size:.88rem;max-width:280px;line-height:1.5">${html}</p>`;
+      }
+
+      function esc(str) {
+        return String(str ?? "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+        );
+      }
+
+      // ── Layout switching ───────────────────────────────────────────────────
+      function switchLayout(id) {
+        if (id === activeLayoutId) return;
+        activeLayoutId = id;
+
+        const url = new URL(location.href);
+        url.searchParams.set("layoutId", String(id));
+        history.pushState({}, "", url.toString());
+
+        Object.keys(pingStatus).forEach((k) => delete pingStatus[k]);
+        stopSSE();
+
+        const layout = getActiveLayout();
+        document.title = (layout?.name ?? "Floor") + " — CCTV Live Monitor";
+        document.getElementById("pageTitle").textContent =
+          (layout?.name ?? "CCTV Live Monitor") + " — Live Monitor";
+
+        renderTabs();
+        renderStage();
+        renderCamList();
+        renderSummary();
+        startSSE();
+      }
+
+      // ── SSE ────────────────────────────────────────────────────────────────
+      function startSSE() {
+        stopSSE();
+        if (!activeLayoutId) return;
+
+        const layout = getActiveLayout();
+        if (!layout) return;
+
+        // Immediately mark cameras with IPs as pending
+        layout.cameras.forEach((c) => { if (c.ip) pingStatus[c.id] = "pending"; });
+        renderMarkers();
+        renderCamList();
+        setConnStatus("connecting");
+
+        _sse = new EventSource(`/api/ping-live?layoutId=${encodeURIComponent(String(activeLayoutId))}`);
+
+        _sse.addEventListener("open", () => {
+          _sseBackoff = 2000;
+          setConnStatus("connected");
+        });
+
+        _sse.addEventListener("message", (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (typeof data.id === "undefined") return;
+
+            const dataLayoutId = Number(data.layoutId) || activeLayoutId;
+            if (dataLayoutId !== activeLayoutId) return;
+
+            pingStatus[Number(data.id)] = data.alive ? "alive" : "dead";
+            _lastPingAt = new Date();
+            renderMarkers();
+            renderCamList();
+            renderSummary();
+            updateLastPing();
+          } catch { /* ignore malformed */ }
+        });
+
+        _sse.addEventListener("error", () => {
+          setConnStatus("disconnected");
+          stopSSE();
+          _sseReconnectTimer = setTimeout(() => {
+            _sseBackoff = Math.min(_sseBackoff * 1.6, 30000);
+            startSSE();
+          }, _sseBackoff);
+        });
+      }
+
+      function stopSSE() {
+        clearTimeout(_sseReconnectTimer);
+        if (_sse) { _sse.close(); _sse = null; }
+      }
+
+      // ── Render: Tabs ───────────────────────────────────────────────────────
+      function renderTabs() {
+        const nav = document.getElementById("layoutTabs");
+        nav.innerHTML = "";
+
+        if (allLayouts.length <= 1) {
+          nav.style.display = "none";
+          document.getElementById("kbdHint").style.display = "none";
+          return;
+        }
+
+        nav.style.display = "flex";
+        document.getElementById("kbdHint").style.display = "block";
+
+        [...allLayouts]
+          .sort((a, b) => a.id - b.id)
+          .forEach((layout) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "layout-tab" + (layout.id === activeLayoutId ? " active" : "");
+            btn.textContent = layout.name;
+            btn.addEventListener("click", () => switchLayout(layout.id));
+            nav.appendChild(btn);
+          });
+      }
+
+      // ── Render: Stage ──────────────────────────────────────────────────────
+      function renderStage() {
+        const layout = getActiveLayout();
+
+        const badge = document.getElementById("stageBadge");
+        badge.textContent = layout?.name ?? "";
+        badge.style.display = allLayouts.length > 1 ? "" : "none";
+
+        const img = document.getElementById("layoutImage");
+        const emptyEl = document.getElementById("emptyStage");
+
+        if (layout?.layoutDataUrl) {
+          img.src = layout.layoutDataUrl;
+          img.style.display = "block";
+          emptyEl.style.display = "none";
+        } else {
+          img.style.display = "none";
+          emptyEl.style.display = "";
+        }
+
+        renderMarkers();
+      }
+
+      // ── Render: Markers ────────────────────────────────────────────────────
+      function renderMarkers() {
+        const layer = document.getElementById("markerLayer");
+        layer.innerHTML = "";
+
+        const layout = getActiveLayout();
+        if (!layout) return;
+
+        layout.cameras.forEach((cam) => {
+          const ps = cam.ip ? (pingStatus[cam.id] ?? "pending") : null;
+          const pingClass = ps === "alive"   ? " ping-alive"
+                          : ps === "dead"    ? " ping-dead"
+                          : ps === "pending" ? " ping-pending"
+                          : "";
+
+          const marker = document.createElement("div");
+          marker.className = "marker" + pingClass;
+          marker.style.left = `${cam.x}%`;
+          marker.style.top  = `${cam.y}%`;
+          marker.style.transform = `translate(-50%, -100%) rotate(${cam.angle || 0}deg)`;
+          marker.title = cam.name;
+          layer.appendChild(marker);
+
+          const label = document.createElement("div");
+          label.className = "marker-label";
+          label.textContent = cam.name;
+          label.style.left = `${cam.x}%`;
+          label.style.top  = `${cam.y}%`;
+          layer.appendChild(label);
+        });
+      }
+
+      // ── Render: Camera list ────────────────────────────────────────────────
+      function renderCamList() {
+        const container = document.getElementById("camList");
+        const layout = getActiveLayout();
+
+        if (!layout?.cameras?.length) {
+          container.innerHTML = `<p style="color:var(--muted);font-size:.82rem">No cameras on this layout.</p>`;
+          return;
+        }
+
+        container.innerHTML = "";
+
+        [...layout.cameras]
+          .sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base", numeric: true }))
+          .forEach((cam) => {
+            const ps = cam.ip ? (pingStatus[cam.id] ?? "pending") : null;
+            const statusText = ps === "alive" ? "Online" : ps === "dead" ? "RTO" : ps === "pending" ? "…" : "—";
+
+            const row = document.createElement("div");
+            row.className = "cam-row";
+            row.innerHTML = `
+              <span class="status-dot${ps ? " " + ps : ""}" title="${
+                ps === "alive" ? "Online (Reply)" : ps === "dead" ? "Offline (RTO)" :
+                ps === "pending" ? "Checking…" : "No IP set"
+              }"></span>
+              <div class="cam-info">
+                <div class="cam-name">${esc(cam.name)}</div>
+                ${cam.ip ? `<div class="cam-ip">${esc(cam.ip)}</div>` : ""}
+              </div>
+              ${ps ? `<span class="cam-status-label ${ps}">${statusText}</span>` : ""}`;
+            container.appendChild(row);
+          });
+      }
+
+      // ── Render: Status bar ─────────────────────────────────────────────────
+      function renderSummary() {
+        const layout = getActiveLayout();
+        const monitored = layout?.cameras.filter((c) => c.ip) ?? [];
+        const alive = monitored.filter((c) => pingStatus[c.id] === "alive").length;
+        const dead  = monitored.filter((c) => pingStatus[c.id] === "dead").length;
+
+        document.getElementById("statSummary").innerHTML = monitored.length
+          ? `<span class="pill"><span class="pill-dot alive"></span>${alive} Online</span>`
+          + ` &nbsp; <span class="pill"><span class="pill-dot dead"></span>${dead} Offline</span>`
+          + ` &nbsp; of ${monitored.length}`
+          : "";
+      }
+
+      function updateLastPing() {
+        if (_lastPingAt) {
+          document.getElementById("lastUpdate").textContent =
+            "Last ping: " + _lastPingAt.toLocaleTimeString();
+        }
+      }
+
+      function setConnStatus(state) {
+        const el = document.getElementById("connStatus");
+        const labels = {
+          connecting:   "Connecting…",
+          connected:    "Live",
+          disconnected: "Disconnected — retrying…",
+        };
+        el.innerHTML = `<span class="conn-dot ${state}"></span> ${labels[state] || state}`;
+      }
+
+      // ── Navigation ─────────────────────────────────────────────────────────
+      window.addEventListener("popstate", () => {
+        const id = Number(new URLSearchParams(location.search).get("layoutId")) || allLayouts[0]?.id;
+        if (id && id !== activeLayoutId) switchLayout(id);
+      });
+
+      // Arrow keys to switch layouts
+      window.addEventListener("keydown", (e) => {
+        if (!allLayouts.length) return;
+        const sorted = [...allLayouts].sort((a, b) => a.id - b.id);
+        const idx = sorted.findIndex((l) => l.id === activeLayoutId);
+        if (e.key === "ArrowRight" && idx < sorted.length - 1) switchLayout(sorted[idx + 1].id);
+        if (e.key === "ArrowLeft"  && idx > 0)                 switchLayout(sorted[idx - 1].id);
+      });
+
+      window.addEventListener("beforeunload", stopSSE);
+    </script>
+  </body>
+</html>

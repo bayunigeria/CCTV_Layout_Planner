@@ -16,11 +16,18 @@ const UPLOADS_DIR = path.join(ROOT_DIR, "uploads");
 const PLAN_FILE = path.join(DATA_DIR, "plan.json");
 
 const DEFAULT_PLAN = {
-  layoutDataUrl: "",
-  cameras: [],
-  selectedId: null,
-  nextId: 1,
-  cameraSearch: "",
+  layouts: [
+    {
+      id: 1,
+      name: "Floor 1",
+      layoutDataUrl: "",
+      cameras: [],
+      selectedId: null,
+      nextId: 1,
+      cameraSearch: "",
+    },
+  ],
+  selectedLayoutId: 1,
 };
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -53,28 +60,70 @@ const upload = multer({
   },
 });
 
-function sanitizePlan(input) {
-  const cameras = Array.isArray(input?.cameras)
-    ? input.cameras
-        .filter((c) => c && typeof c === "object")
-        .map((c) => ({
-          id: Number(c.id) || 0,
-          name: String(c.name || "").trim(),
-          x: Number(c.x) || 0,
-          y: Number(c.y) || 0,
-          angle: Number(c.angle) || 0,
-          note: String(c.note || ""),
-          preview: String(c.preview || ""),
-          ip: String(c.ip || "").trim(),
-        }))
+function sanitizeCamera(c) {
+  return {
+    id: Number(c?.id) || 0,
+    name: String(c?.name || "").trim(),
+    x: Number(c?.x) || 0,
+    y: Number(c?.y) || 0,
+    angle: Number(c?.angle) || 0,
+    note: String(c?.note || ""),
+    preview: String(c?.preview || ""),
+    ip: String(c?.ip || "").trim(),
+  };
+}
+
+function sanitizeLayout(layout, fallbackId = 1) {
+  const cameras = Array.isArray(layout?.cameras)
+    ? layout.cameras.filter((c) => c && typeof c === "object").map(sanitizeCamera)
     : [];
 
   return {
-    layoutDataUrl: String(input?.layoutDataUrl || ""),
+    id: Number(layout?.id) || fallbackId,
+    name: String(layout?.name || `Floor ${fallbackId}`).trim() || `Floor ${fallbackId}`,
+    layoutDataUrl: String(layout?.layoutDataUrl || ""),
     cameras,
-    selectedId: input?.selectedId == null ? null : Number(input.selectedId),
-    nextId: Number(input?.nextId) || Math.max(0, ...cameras.map((c) => c.id)) + 1,
-    cameraSearch: String(input?.cameraSearch || ""),
+    selectedId: layout?.selectedId == null ? null : Number(layout.selectedId),
+    nextId: Number(layout?.nextId) || Math.max(0, ...cameras.map((c) => c.id)) + 1,
+    cameraSearch: String(layout?.cameraSearch || ""),
+  };
+}
+
+function sanitizePlan(input) {
+  let layouts = [];
+
+  if (Array.isArray(input?.layouts) && input.layouts.length) {
+    layouts = input.layouts
+      .filter((l) => l && typeof l === "object")
+      .map((layout, i) => sanitizeLayout(layout, i + 1));
+  } else {
+    // Backward compatibility with single-layout payload.
+    layouts = [
+      sanitizeLayout(
+        {
+          id: 1,
+          name: "Floor 1",
+          layoutDataUrl: input?.layoutDataUrl || "",
+          cameras: Array.isArray(input?.cameras) ? input.cameras : [],
+          selectedId: input?.selectedId,
+          nextId: input?.nextId,
+          cameraSearch: input?.cameraSearch,
+        },
+        1
+      ),
+    ];
+  }
+
+  if (!layouts.length) {
+    layouts = [...DEFAULT_PLAN.layouts];
+  }
+
+  const selectedLayoutId = Number(input?.selectedLayoutId);
+  const hasSelected = layouts.some((layout) => layout.id === selectedLayoutId);
+
+  return {
+    layouts,
+    selectedLayoutId: hasSelected ? selectedLayoutId : layouts[0].id,
   };
 }
 
@@ -130,6 +179,8 @@ function pingHost(ip) {
 }
 
 app.get("/api/ping-live", (req, res) => {
+  const requestedLayoutId = Number(req.query.layoutId);
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -142,24 +193,36 @@ app.get("/api/ping-live", (req, res) => {
     if (!active) return;
 
     let targets = [];
+    let activeLayoutId = requestedLayoutId;
+
     try {
       const raw = fs.readFileSync(PLAN_FILE, "utf8");
-      const plan = JSON.parse(raw);
-      targets = (Array.isArray(plan.cameras) ? plan.cameras : []).filter(
-        (c) => c.ip && isValidIp(String(c.ip))
-      );
+      const plan = sanitizePlan(JSON.parse(raw));
+      const layout =
+        plan.layouts.find((l) => l.id === requestedLayoutId) ||
+        plan.layouts.find((l) => l.id === plan.selectedLayoutId) ||
+        plan.layouts[0];
+
+      if (layout) {
+        activeLayoutId = layout.id;
+        targets = (Array.isArray(layout.cameras) ? layout.cameras : []).filter(
+          (c) => c.ip && isValidIp(String(c.ip))
+        );
+      }
     } catch {
       // plan unreadable – try again next cycle
     }
 
     if (targets.length === 0) {
-      if (active) res.write(`data: ${JSON.stringify({ type: "idle" })}\n\n`);
+      if (active) {
+        res.write(`data: ${JSON.stringify({ type: "idle", layoutId: activeLayoutId || null })}\n\n`);
+      }
     } else {
       await Promise.all(
         targets.map(async (cam) => {
           const alive = await pingHost(String(cam.ip));
           if (active) {
-            res.write(`data: ${JSON.stringify({ id: cam.id, alive })}\n\n`);
+            res.write(`data: ${JSON.stringify({ layoutId: activeLayoutId, id: cam.id, alive })}\n\n`);
           }
         })
       );
@@ -176,6 +239,10 @@ app.get("/api/ping-live", (req, res) => {
 });
 
 app.use("/uploads", express.static(UPLOADS_DIR, { index: false }));
+app.get("/display", (_req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "display.html"));
+});
+
 app.use(express.static(ROOT_DIR, { index: ["index.html"] }));
 
 app.use((err, _req, res, _next) => {

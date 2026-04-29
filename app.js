@@ -2,11 +2,8 @@ const STORAGE_KEY = "cams-layout-planner-fallback-v2";
 const PREVIEW_CONTEXT_KEY = "cams-preview-context-v1";
 
 const state = {
-  layoutDataUrl: "",
-  cameras: [],
-  selectedId: null,
-  nextId: 1,
-  cameraSearch: "",
+  layouts: [],
+  selectedLayoutId: null,
 };
 
 const layoutInput = document.getElementById("layoutInput");
@@ -15,9 +12,13 @@ const exportBtn = document.getElementById("exportBtn");
 const exportPngBtn = document.getElementById("exportPngBtn");
 const clearBtn = document.getElementById("clearBtn");
 const stage = document.getElementById("stage");
+const viewport = document.getElementById("viewport");
 const layoutImage = document.getElementById("layoutImage");
 const markerLayer = document.getElementById("markerLayer");
 const emptyState = document.getElementById("emptyState");
+const ctxMenu = document.getElementById("ctxMenu");
+const ctxAddBtn = document.getElementById("ctxAddBtn");
+const ctxCancelBtn = document.getElementById("ctxCancelBtn");
 const cameraList = document.getElementById("cameraList");
 const cameraSearchInput = document.getElementById("cameraSearchInput");
 const editor = document.getElementById("editor");
@@ -33,6 +34,11 @@ const deleteBtn = document.getElementById("deleteBtn");
 const ipInput = document.getElementById("ipInput");
 const pingToggleBtn = document.getElementById("pingToggleBtn");
 
+const layoutSelect = document.getElementById("layoutSelect");
+const layoutNameInput = document.getElementById("layoutNameInput");
+const addLayoutBtn = document.getElementById("addLayoutBtn");
+const removeLayoutBtn = document.getElementById("removeLayoutBtn");
+
 let _drag = null;
 let _saveTimer = null;
 let _saving = false;
@@ -42,8 +48,45 @@ let pingActive = false;
 let _pingEventSource = null;
 const pingStatus = {};
 
+let panX = 0;
+let panY = 0;
+let _ctxMenuPos = null;
+
 function normalizeLabel(label) {
   return String(label || "").trim().toLowerCase();
+}
+
+function applyPan() {
+  viewport.style.transform = `translate(${panX}px, ${panY}px)`;
+}
+
+function resetPan() {
+  panX = 0;
+  panY = 0;
+  applyPan();
+}
+
+function showCtxMenu(e) {
+  const layout = getActiveLayout();
+  if (!layout.layoutDataUrl) return;
+
+  const rect = stage.getBoundingClientRect();
+  const x = ((e.clientX - rect.left - panX) / rect.width) * 100;
+  const y = ((e.clientY - rect.top - panY) / rect.height) * 100;
+  if (x < 0 || y < 0 || x > 100 || y > 100) return;
+
+  _ctxMenuPos = { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) };
+
+  const menuX = Math.min(window.innerWidth - 165, e.clientX + 4);
+  const menuY = Math.min(window.innerHeight - 100, e.clientY + 4);
+  ctxMenu.style.left = `${menuX}px`;
+  ctxMenu.style.top = `${menuY}px`;
+  ctxMenu.classList.remove("hidden");
+}
+
+function hideCtxMenu() {
+  ctxMenu.classList.add("hidden");
+  _ctxMenuPos = null;
 }
 
 function isValidIpv4(ip) {
@@ -52,34 +95,171 @@ function isValidIpv4(ip) {
   return parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) >= 0 && Number(p) <= 255);
 }
 
-function hasDuplicateLabel(label, excludeId = null) {
+function createEmptyLayout(id, name) {
+  return {
+    id,
+    name: String(name || "Layout").trim() || "Layout",
+    layoutDataUrl: "",
+    cameras: [],
+    selectedId: null,
+    nextId: 1,
+    cameraSearch: "",
+  };
+}
+
+function getLayoutById(id) {
+  return state.layouts.find((layout) => layout.id === id) || null;
+}
+
+function getActiveLayout() {
+  let active = getLayoutById(state.selectedLayoutId);
+  if (active) return active;
+
+  if (!state.layouts.length) {
+    const defaultLayout = createEmptyLayout(1, "Floor 1");
+    state.layouts.push(defaultLayout);
+    state.selectedLayoutId = defaultLayout.id;
+    return defaultLayout;
+  }
+
+  state.selectedLayoutId = state.layouts[0].id;
+  return state.layouts[0];
+}
+
+function nextLayoutId() {
+  return Math.max(0, ...state.layouts.map((l) => Number(l.id) || 0)) + 1;
+}
+
+function makeUniqueLayoutName(baseName) {
+  const base = String(baseName || "Layout").trim() || "Layout";
+  const used = new Set(state.layouts.map((l) => normalizeLabel(l.name)));
+  if (!used.has(normalizeLabel(base))) return base;
+
+  let i = 2;
+  let candidate = `${base} ${i}`;
+  while (used.has(normalizeLabel(candidate))) {
+    i += 1;
+    candidate = `${base} ${i}`;
+  }
+  return candidate;
+}
+
+function sanitizeCamera(input) {
+  return {
+    id: Number(input?.id) || 0,
+    name: String(input?.name || ""),
+    x: Number(input?.x) || 0,
+    y: Number(input?.y) || 0,
+    angle: Number(input?.angle) || 0,
+    note: String(input?.note || ""),
+    preview: String(input?.preview || ""),
+    ip: String(input?.ip || ""),
+  };
+}
+
+function sanitizeLayout(input, fallbackId = 1) {
+  const cameras = Array.isArray(input?.cameras) ? input.cameras.map(sanitizeCamera) : [];
+  const computedNextId = Math.max(0, ...cameras.map((c) => Number(c.id) || 0)) + 1;
+
+  return {
+    id: Number(input?.id) || fallbackId,
+    name: String(input?.name || `Floor ${fallbackId}`).trim() || `Floor ${fallbackId}`,
+    layoutDataUrl: String(input?.layoutDataUrl || ""),
+    cameras,
+    selectedId: input?.selectedId == null ? null : Number(input.selectedId),
+    nextId: Number(input?.nextId) || computedNextId,
+    cameraSearch: String(input?.cameraSearch || ""),
+  };
+}
+
+function hasDuplicateLabel(label, excludeId = null, layout = getActiveLayout()) {
   const normalized = normalizeLabel(label);
   if (!normalized) return false;
-  return state.cameras.some((camera) => {
+  return layout.cameras.some((camera) => {
     if (excludeId !== null && camera.id === excludeId) return false;
     return normalizeLabel(camera.name) === normalized;
   });
 }
 
-function makeUniqueLabel(baseLabel, excludeId = null) {
+function makeUniqueLabel(baseLabel, excludeId = null, layout = getActiveLayout()) {
   const base = String(baseLabel || "").trim() || "Unnamed";
-  if (!hasDuplicateLabel(base, excludeId)) return base;
+  if (!hasDuplicateLabel(base, excludeId, layout)) return base;
 
   let index = 2;
   let candidate = `${base} (${index})`;
-  while (hasDuplicateLabel(candidate, excludeId)) {
+  while (hasDuplicateLabel(candidate, excludeId, layout)) {
     index += 1;
     candidate = `${base} (${index})`;
   }
   return candidate;
 }
 
-function enforceUniqueLabels() {
-  state.cameras.forEach((camera, i) => {
+function enforceUniqueLabels(layout) {
+  layout.cameras.forEach((camera, i) => {
     const fallback = `CAM-${String(i + 1).padStart(2, "0")}`;
     const current = String(camera.name || "").trim() || fallback;
-    camera.name = makeUniqueLabel(current, camera.id);
+    camera.name = makeUniqueLabel(current, camera.id, layout);
   });
+}
+
+function normalizePlan(input) {
+  let layouts = [];
+
+  if (Array.isArray(input?.layouts) && input.layouts.length) {
+    layouts = input.layouts
+      .filter((l) => l && typeof l === "object")
+      .map((layout, i) => sanitizeLayout(layout, i + 1));
+  } else {
+    const legacyLayout = sanitizeLayout(
+      {
+        id: 1,
+        name: "Floor 1",
+        layoutDataUrl: input?.layoutDataUrl || "",
+        cameras: Array.isArray(input?.cameras) ? input.cameras : [],
+        selectedId: input?.selectedId,
+        nextId: input?.nextId,
+        cameraSearch: input?.cameraSearch,
+      },
+      1
+    );
+    layouts = [legacyLayout];
+  }
+
+  if (!layouts.length) {
+    layouts = [createEmptyLayout(1, "Floor 1")];
+  }
+
+  layouts.forEach(enforceUniqueLabels);
+
+  const selectedLayoutId = Number(input?.selectedLayoutId);
+  const hasSelected = layouts.some((l) => l.id === selectedLayoutId);
+
+  state.layouts = layouts;
+  state.selectedLayoutId = hasSelected ? selectedLayoutId : layouts[0].id;
+}
+
+function toPlanPayload() {
+  return {
+    layouts: state.layouts.map((layout) => ({
+      id: layout.id,
+      name: layout.name,
+      layoutDataUrl: layout.layoutDataUrl,
+      cameras: layout.cameras.map((c) => ({
+        id: c.id,
+        name: c.name,
+        x: c.x,
+        y: c.y,
+        angle: c.angle,
+        note: c.note,
+        preview: c.preview,
+        ip: c.ip || "",
+      })),
+      selectedId: layout.selectedId,
+      nextId: layout.nextId,
+      cameraSearch: layout.cameraSearch,
+    })),
+    selectedLayoutId: state.selectedLayoutId,
+  };
 }
 
 function setNameError(message) {
@@ -96,53 +276,8 @@ function setNameError(message) {
 }
 
 function getSelectedCamera() {
-  return state.cameras.find((c) => c.id === state.selectedId) || null;
-}
-
-function normalizePlan(input) {
-  const cameras = Array.isArray(input?.cameras) ? input.cameras : [];
-  const normalized = {
-    layoutDataUrl: String(input?.layoutDataUrl || ""),
-    cameras: cameras.map((c) => ({
-      id: Number(c.id) || 0,
-      name: String(c.name || ""),
-      x: Number(c.x) || 0,
-      y: Number(c.y) || 0,
-      angle: Number(c.angle) || 0,
-      note: String(c.note || ""),
-      preview: String(c.preview || ""),
-      ip: String(c.ip || ""),
-    })),
-    selectedId: input?.selectedId == null ? null : Number(input.selectedId),
-    nextId: Number(input?.nextId) || Math.max(0, ...cameras.map((c) => Number(c.id) || 0)) + 1,
-    cameraSearch: String(input?.cameraSearch || ""),
-  };
-
-  state.layoutDataUrl = normalized.layoutDataUrl;
-  state.cameras = normalized.cameras;
-  state.selectedId = normalized.selectedId;
-  state.nextId = normalized.nextId;
-  state.cameraSearch = normalized.cameraSearch;
-  enforceUniqueLabels();
-}
-
-function toPlanPayload() {
-  return {
-    layoutDataUrl: state.layoutDataUrl,
-    cameras: state.cameras.map((c) => ({
-      id: c.id,
-      name: c.name,
-      x: c.x,
-      y: c.y,
-      angle: c.angle,
-      note: c.note,
-      preview: c.preview,
-      ip: c.ip || "",
-    })),
-    selectedId: state.selectedId,
-    nextId: state.nextId,
-    cameraSearch: state.cameraSearch,
-  };
+  const layout = getActiveLayout();
+  return layout.cameras.find((c) => c.id === layout.selectedId) || null;
 }
 
 async function apiGetPlan() {
@@ -230,15 +365,17 @@ function scheduleSave() {
 }
 
 function setSelectedCamera(id) {
-  state.selectedId = id;
+  const layout = getActiveLayout();
+  layout.selectedId = id;
   render();
   scheduleSave();
 }
 
 function addCamera(xPercent, yPercent) {
-  const defaultName = makeUniqueLabel(`CAM-${String(state.nextId).padStart(2, "0")}`);
+  const layout = getActiveLayout();
+  const defaultName = makeUniqueLabel(`CAM-${String(layout.nextId).padStart(2, "0")}`, null, layout);
   const cam = {
-    id: state.nextId++,
+    id: layout.nextId++,
     name: defaultName,
     x: xPercent,
     y: yPercent,
@@ -247,17 +384,22 @@ function addCamera(xPercent, yPercent) {
     preview: "",
     ip: "",
   };
-  state.cameras.push(cam);
-  state.selectedId = cam.id;
+  layout.cameras.push(cam);
+  layout.selectedId = cam.id;
   render();
   scheduleSave();
 }
 
+function pingKey(layoutId, cameraId) {
+  return `${layoutId}:${cameraId}`;
+}
+
 function removeSelectedCamera() {
-  if (!state.selectedId) return;
-  delete pingStatus[state.selectedId];
-  state.cameras = state.cameras.filter((c) => c.id !== state.selectedId);
-  state.selectedId = state.cameras[0]?.id || null;
+  const layout = getActiveLayout();
+  if (!layout.selectedId) return;
+  delete pingStatus[pingKey(layout.id, layout.selectedId)];
+  layout.cameras = layout.cameras.filter((c) => c.id !== layout.selectedId);
+  layout.selectedId = layout.cameras[0]?.id || null;
   render();
   scheduleSave();
 }
@@ -266,6 +408,50 @@ function updateSelectedCamera(changes) {
   const sel = getSelectedCamera();
   if (!sel) return;
   Object.assign(sel, changes);
+  render();
+  scheduleSave();
+}
+
+function addLayout() {
+  const id = nextLayoutId();
+  const name = makeUniqueLayoutName(`Floor ${id}`);
+  state.layouts.push(createEmptyLayout(id, name));
+  state.selectedLayoutId = id;
+  stopPingMonitoring();
+  render();
+  scheduleSave();
+}
+
+function removeLayout() {
+  if (state.layouts.length <= 1) {
+    alert("At least 1 layout is required.");
+    return;
+  }
+
+  const layout = getActiveLayout();
+  if (!confirm(`Remove layout "${layout.name}" and all its camera points?`)) return;
+
+  stopPingMonitoring();
+  state.layouts = state.layouts.filter((l) => l.id !== layout.id);
+  state.selectedLayoutId = state.layouts[0].id;
+  render();
+  scheduleSave();
+}
+
+function setLayoutName(name) {
+  const layout = getActiveLayout();
+  layout.name = String(name || "").trim() || `Floor ${layout.id}`;
+  renderLayoutControls();
+  scheduleSave();
+}
+
+function setActiveLayout(layoutId) {
+  if (Number(layoutId) === state.selectedLayoutId) return;
+  if (!getLayoutById(Number(layoutId))) return;
+
+  stopPingMonitoring();
+  state.selectedLayoutId = Number(layoutId);
+  resetPan();
   render();
   scheduleSave();
 }
@@ -285,7 +471,9 @@ function importJson(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
+      stopPingMonitoring();
       normalizePlan(JSON.parse(String(reader.result || "")));
+      resetPan();
       render();
       scheduleSave();
     } catch {
@@ -298,17 +486,16 @@ function importJson(file) {
 function clearAll() {
   if (!confirm("Reset all layout and camera data?")) return;
   stopPingMonitoring();
-  state.layoutDataUrl = "";
-  state.cameras = [];
-  state.selectedId = null;
-  state.nextId = 1;
-  state.cameraSearch = "";
+  state.layouts = [createEmptyLayout(1, "Floor 1")];
+  state.selectedLayoutId = 1;
+  resetPan();
   render();
   scheduleSave();
 }
 
 async function exportPng() {
-  if (!state.layoutDataUrl) {
+  const layout = getActiveLayout();
+  if (!layout.layoutDataUrl) {
     alert("Upload a layout image first.");
     return;
   }
@@ -321,7 +508,7 @@ async function exportPng() {
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
-      img.src = state.layoutDataUrl;
+      img.src = layout.layoutDataUrl;
     });
 
     const W = img.naturalWidth;
@@ -334,7 +521,7 @@ async function exportPng() {
 
     ctx.drawImage(img, 0, 0, W, H);
 
-    state.cameras.forEach((cam) => {
+    layout.cameras.forEach((cam) => {
       const cx = (cam.x / 100) * W;
       const cy = (cam.y / 100) * H;
       const r = Math.max(10, Math.min(W, H) * 0.015);
@@ -377,7 +564,7 @@ async function exportPng() {
 
     const a = document.createElement("a");
     a.href = canvas.toDataURL("image/png");
-    a.download = `cctv-plan-${new Date().toISOString().slice(0, 10)}.png`;
+    a.download = `${layout.name.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase() || "layout"}-${new Date().toISOString().slice(0, 10)}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -398,7 +585,7 @@ function showHoverCard(camera, rect) {
 
   hoverCard.innerHTML = `${previewHtml}
     <div class="hover-meta">
-      <p class="hover-angle">Direction: ${camera.angle}°</p>
+      <p class="hover-angle">Direction: ${camera.angle}�</p>
       <p class="hover-title">${camera.name}</p>
       ${camera.preview ? '<p class="hover-open-hint">Click preview to open full image</p>' : ""}
       <p class="hover-note">${camera.note || "No notes added."}</p>
@@ -431,7 +618,8 @@ function hideHoverCard() {
 }
 
 function openPreviewViewer(camera) {
-  const previewItems = state.cameras
+  const layout = getActiveLayout();
+  const previewItems = layout.cameras
     .filter((c) => c.preview)
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base", numeric: true }))
     .map((c) => ({
@@ -463,31 +651,37 @@ function startPingMonitoring() {
     _pingEventSource = null;
   }
 
-  const targets = state.cameras.filter((c) => isValidIpv4(c.ip));
+  const layout = getActiveLayout();
+  const targets = layout.cameras.filter((c) => isValidIpv4(c.ip));
   if (!targets.length) {
-    alert("Masukkan minimal 1 IP camera yang valid (format: 192.168.1.10) sebelum Start Monitoring.");
+    alert("Enter at least 1 valid camera IP address (e.g. 192.168.1.10) before starting monitoring.");
     return;
   }
 
   Object.keys(pingStatus).forEach((k) => delete pingStatus[k]);
   targets.forEach((c) => {
-    pingStatus[c.id] = "pending";
+    pingStatus[pingKey(layout.id, c.id)] = "pending";
   });
+
   pingActive = true;
   updatePingToggleBtn();
   renderMarkers();
   renderCameraList();
 
-  _pingEventSource = new EventSource("/api/ping-live");
+  _pingEventSource = new EventSource(`/api/ping-live?layoutId=${encodeURIComponent(String(layout.id))}`);
 
   _pingEventSource.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
-      if (typeof data.id !== "undefined") {
-        pingStatus[data.id] = data.alive ? "alive" : "dead";
-        renderMarkers();
-        renderCameraList();
-      }
+      if (typeof data.id === "undefined") return;
+
+      const dataLayoutId = Number(data.layoutId) || layout.id;
+      const activeLayout = getActiveLayout();
+      if (activeLayout.id !== dataLayoutId) return;
+
+      pingStatus[pingKey(dataLayoutId, Number(data.id))] = data.alive ? "alive" : "dead";
+      renderMarkers();
+      renderCameraList();
     } catch {
       // ignore malformed event
     }
@@ -541,8 +735,10 @@ function startDrag(event, camera) {
   event.preventDefault();
 
   const rect = stage.getBoundingClientRect();
+  const layout = getActiveLayout();
   _drag = {
     cameraId: camera.id,
+    layoutId: layout.id,
     stageRect: rect,
     moved: false,
   };
@@ -551,13 +747,15 @@ function startDrag(event, camera) {
     if (!_drag) return;
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const x = ((clientX - _drag.stageRect.left) / _drag.stageRect.width) * 100;
-    const y = ((clientY - _drag.stageRect.top) / _drag.stageRect.height) * 100;
+    const x = ((clientX - _drag.stageRect.left - panX) / _drag.stageRect.width) * 100;
+    const y = ((clientY - _drag.stageRect.top - panY) / _drag.stageRect.height) * 100;
 
     if (x < 0 || y < 0 || x > 100 || y > 100) return;
 
-    const cam = state.cameras.find((c) => c.id === _drag.cameraId);
+    const dragLayout = getLayoutById(_drag.layoutId);
+    const cam = dragLayout?.cameras.find((c) => c.id === _drag.cameraId);
     if (!cam) return;
+
     cam.x = Number(x.toFixed(2));
     cam.y = Number(y.toFixed(2));
     _drag.moved = true;
@@ -566,7 +764,10 @@ function startDrag(event, camera) {
 
   function onUp() {
     if (_drag?.moved) {
-      state.selectedId = _drag.cameraId;
+      const dragLayout = getLayoutById(_drag.layoutId);
+      if (dragLayout) {
+        dragLayout.selectedId = _drag.cameraId;
+      }
       render();
       scheduleSave();
     }
@@ -583,15 +784,39 @@ function startDrag(event, camera) {
   window.addEventListener("touchend", onUp);
 }
 
+function renderLayoutControls() {
+  const activeLayout = getActiveLayout();
+
+  layoutSelect.innerHTML = "";
+  state.layouts
+    .sort((a, b) => a.id - b.id)
+    .forEach((layout) => {
+      const option = document.createElement("option");
+      option.value = String(layout.id);
+      option.textContent = `${layout.name} (${layout.cameras.length})`;
+      layoutSelect.appendChild(option);
+    });
+
+  layoutSelect.value = String(activeLayout.id);
+  layoutNameInput.value = activeLayout.name || "";
+  removeLayoutBtn.disabled = state.layouts.length <= 1;
+}
+
 function renderMarkers() {
   markerLayer.innerHTML = "";
+  const layout = getActiveLayout();
+  const searchQuery = normalizeLabel(layout.cameraSearch);
 
-  state.cameras.forEach((cam) => {
+  layout.cameras.forEach((cam) => {
     const marker = document.createElement("button");
     marker.type = "button";
-    const ps = pingStatus[cam.id];
+    const ps = pingStatus[pingKey(layout.id, cam.id)];
     const pingClass = ps === "alive" ? " ping-alive" : ps === "dead" ? " ping-dead" : ps === "pending" ? " ping-pending" : "";
-    marker.className = `marker${cam.id === state.selectedId ? " selected" : ""}${pingClass}`;
+    let searchClass = "";
+    if (searchQuery) {
+      searchClass = normalizeLabel(cam.name).includes(searchQuery) ? " search-match" : " search-dim";
+    }
+    marker.className = `marker${cam.id === layout.selectedId ? " selected" : ""}${pingClass}${searchClass}`;
     marker.style.left = `${cam.x}%`;
     marker.style.top = `${cam.y}%`;
     marker.style.transform = `translate(-50%, -100%) rotate(${cam.angle || 0}deg)`;
@@ -617,15 +842,18 @@ function renderMarkers() {
 
 function renderCameraList() {
   cameraList.innerHTML = "";
-  if (!state.cameras.length) {
+  const layout = getActiveLayout();
+
+  if (!layout.cameras.length) {
     cameraList.innerHTML = `<p class="muted">No camera points yet.</p>`;
     return;
   }
 
-  const sortedCameras = [...state.cameras].sort((a, b) =>
+  const sortedCameras = [...layout.cameras].sort((a, b) =>
     (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base", numeric: true })
   );
-  const searchQuery = normalizeLabel(state.cameraSearch);
+
+  const searchQuery = normalizeLabel(layout.cameraSearch);
   const filteredCameras = !searchQuery
     ? sortedCameras
     : sortedCameras.filter((camera) => normalizeLabel(camera.name).includes(searchQuery));
@@ -638,16 +866,19 @@ function renderCameraList() {
   filteredCameras.forEach((cam) => {
     const item = document.createElement("button");
     item.type = "button";
-    item.className = `camera-item${cam.id === state.selectedId ? " active" : ""}`;
-    const ps = pingStatus[cam.id];
+    item.className = `camera-item${cam.id === layout.selectedId ? " active" : ""}`;
+
+    const ps = pingStatus[pingKey(layout.id, cam.id)];
     if (ps) {
       const dot = document.createElement("span");
       dot.className = `ping-dot dot-${ps}`;
       item.appendChild(dot);
     }
+
     const labelSpan = document.createElement("span");
     labelSpan.textContent = cam.name;
     item.appendChild(labelSpan);
+
     item.addEventListener("click", () => setSelectedCamera(cam.id));
     cameraList.appendChild(item);
   });
@@ -661,6 +892,7 @@ function renderEditor() {
     setNameError("");
     return;
   }
+
   editor.classList.remove("hidden");
   editorHint.classList.add("hidden");
   setNameError("");
@@ -672,37 +904,44 @@ function renderEditor() {
 }
 
 function renderLayout() {
-  if (!state.layoutDataUrl) {
+  const layout = getActiveLayout();
+  if (!layout.layoutDataUrl) {
     layoutImage.style.display = "none";
     emptyState.classList.remove("hidden");
     return;
   }
-  layoutImage.src = state.layoutDataUrl;
+  layoutImage.src = layout.layoutDataUrl;
   layoutImage.style.display = "block";
   emptyState.classList.add("hidden");
 }
 
 function render() {
-  cameraSearchInput.value = state.cameraSearch;
+  const layout = getActiveLayout();
+  cameraSearchInput.value = layout.cameraSearch || "";
+  renderLayoutControls();
   renderLayout();
   renderMarkers();
   renderCameraList();
   renderEditor();
+  const displayBtn = document.getElementById("displayBtn");
+  if (displayBtn) displayBtn.href = `/display?layoutId=${layout.id}`;
 }
 
 layoutInput.addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
+  const layout = getActiveLayout();
+
   try {
     const uploadedPath = await uploadImageFile(file);
-    state.layoutDataUrl = uploadedPath;
+    layout.layoutDataUrl = uploadedPath;
     render();
     scheduleSave();
   } catch (err) {
     try {
       const localDataUrl = await readFileAsDataUrl(file);
-      state.layoutDataUrl = localDataUrl;
+      layout.layoutDataUrl = localDataUrl;
       render();
       scheduleSave();
       alert("Server upload is not reachable. Image is stored in local browser mode.");
@@ -714,21 +953,66 @@ layoutInput.addEventListener("change", async (e) => {
   }
 });
 
-stage.addEventListener("click", (e) => {
-  if (!state.layoutDataUrl) return;
+stage.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
   if (e.target instanceof HTMLElement && e.target.classList.contains("marker")) return;
-  if (_drag?.moved) return;
+  hideCtxMenu();
 
-  const rect = stage.getBoundingClientRect();
-  const x = ((e.clientX - rect.left) / rect.width) * 100;
-  const y = ((e.clientY - rect.top) / rect.height) * 100;
-  if (x < 0 || y < 0 || x > 100 || y > 100) return;
+  const startX = e.clientX - panX;
+  const startY = e.clientY - panY;
+  let moved = false;
 
-  addCamera(Number(x.toFixed(2)), Number(y.toFixed(2)));
+  function onPanMove(ev) {
+    panX = ev.clientX - startX;
+    panY = ev.clientY - startY;
+    applyPan();
+    if (!moved) {
+      moved = true;
+      stage.classList.add("is-panning");
+    }
+  }
+
+  function onPanUp() {
+    stage.classList.remove("is-panning");
+    window.removeEventListener("mousemove", onPanMove);
+    window.removeEventListener("mouseup", onPanUp);
+  }
+
+  window.addEventListener("mousemove", onPanMove);
+  window.addEventListener("mouseup", onPanUp);
+});
+
+stage.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  if (e.target instanceof HTMLElement && e.target.classList.contains("marker")) return;
+  showCtxMenu(e);
+});
+
+ctxAddBtn.addEventListener("click", () => {
+  if (_ctxMenuPos) addCamera(_ctxMenuPos.x, _ctxMenuPos.y);
+  hideCtxMenu();
+});
+
+ctxCancelBtn.addEventListener("click", hideCtxMenu);
+
+document.addEventListener("click", (e) => {
+  if (!ctxMenu.classList.contains("hidden") && !ctxMenu.contains(e.target)) {
+    hideCtxMenu();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") hideCtxMenu();
+});
+
+stage.addEventListener("dblclick", (e) => {
+  if (e.target instanceof HTMLElement && e.target.classList.contains("marker")) return;
+  resetPan();
 });
 
 nameInput.addEventListener("input", () => {
   const selected = getSelectedCamera();
+  const layout = getActiveLayout();
   if (!selected) return;
 
   const nextLabel = nameInput.value.trim();
@@ -737,7 +1021,7 @@ nameInput.addEventListener("input", () => {
     return;
   }
 
-  if (hasDuplicateLabel(nextLabel, selected.id)) {
+  if (hasDuplicateLabel(nextLabel, selected.id, layout)) {
     setNameError("Label must be unique. This label already exists.");
     return;
   }
@@ -782,10 +1066,23 @@ previewInput.addEventListener("change", async (e) => {
 });
 
 cameraSearchInput.addEventListener("input", (e) => {
-  state.cameraSearch = e.target.value || "";
+  const layout = getActiveLayout();
+  layout.cameraSearch = e.target.value || "";
   renderCameraList();
+  renderMarkers();
   scheduleSave();
 });
+
+layoutSelect.addEventListener("change", (e) => {
+  setActiveLayout(Number(e.target.value));
+});
+
+layoutNameInput.addEventListener("input", (e) => {
+  setLayoutName(e.target.value);
+});
+
+addLayoutBtn.addEventListener("click", addLayout);
+removeLayoutBtn.addEventListener("click", removeLayout);
 
 deleteBtn.addEventListener("click", removeSelectedCamera);
 pingToggleBtn.addEventListener("click", togglePingMonitoring);
@@ -802,6 +1099,10 @@ importBtn.addEventListener("change", (e) => {
 
 window.addEventListener("resize", () => {
   hideHoverCard();
+});
+
+window.addEventListener("beforeunload", () => {
+  if (_pingEventSource) _pingEventSource.close();
 });
 
 hoverCard.addEventListener("mouseenter", () => {
